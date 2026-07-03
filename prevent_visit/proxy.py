@@ -238,6 +238,7 @@ class ProxyServer:
         self.intercept_hosts = {item.lower() for item in config.intercept_search_hosts}
 
     def run(self) -> None:
+        print(f"Prevent Visit starting on {self.config.proxy_host}:{self.config.proxy_port}...", flush=True)
         self.certificate_manager.ensure_root_ca()
         try:
             self.server = ThreadedTCPServer(
@@ -245,9 +246,11 @@ class ProxyServer:
                 ProxyRequestHandler,
                 self,
             )
+            print(f"Prevent Visit listening on {self.config.proxy_host}:{self.config.proxy_port}", flush=True)
         except OSError as exc:
             host = self.config.proxy_host
             port = self.config.proxy_port
+            print(f"ERROR: Could not start on {host}:{port} - {exc}", flush=True)
             raise RuntimeError(
                 f"Prevent Visit could not start because {host}:{port} is already in use."
             ) from exc

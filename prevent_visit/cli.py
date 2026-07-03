@@ -248,6 +248,11 @@ def do_start(config_path: Path) -> None:
     repo_root = config_path.resolve().parent.parent
     runner_script = repo_root / "run_guard.py"
 
+    # Create logs directory
+    logs_dir = repo_root / "logs"
+    logs_dir.mkdir(exist_ok=True)
+    log_file = logs_dir / "service.log"
+
     startupinfo = subprocess.STARTUPINFO()
     startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
     startupinfo.wShowWindow = subprocess.SW_HIDE
@@ -257,8 +262,8 @@ def do_start(config_path: Path) -> None:
             [sys.executable, str(runner_script), "run-service", "--config", str(config_path)],
             startupinfo=startupinfo,
             cwd=str(repo_root),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=open(log_file, "w"),
+            stderr=subprocess.STDOUT,
         )
         print(f"[*] Process started with PID: {proc.pid}")
     except Exception as e:
@@ -273,7 +278,16 @@ def do_start(config_path: Path) -> None:
             return
         print(f"[*] Waiting for service to start... ({i+1}/20)")
 
-    print("[!] Failed to start Prevent Visit. The service did not respond.")
+    # Check for errors in log file
+    if log_file.exists():
+        with open(log_file, "r") as f:
+            log_content = f.read()
+            if log_content:
+                print(f"[!] Service error logs:")
+                print(log_content[:500])
+
+    print("[!] Failed to start Prevent Visit.")
+    print(f"[*] Check logs at: {log_file}")
 
 
 def _kill_existing_processes(proxy_port: int) -> None:
