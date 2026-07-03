@@ -1,95 +1,19 @@
 function FindProxyForURL(url, host) {
   host = host.toLowerCase();
   if (
-    dnsDomainIs(host, "au.search.yahoo.com") ||
     dnsDomainIs(host, "bing.com") ||
-    dnsDomainIs(host, "ca.search.yahoo.com") ||
     dnsDomainIs(host, "duckduckgo.com") ||
-    dnsDomainIs(host, "ecosia.org") ||
-    dnsDomainIs(host, "google.ae") ||
-    dnsDomainIs(host, "google.at") ||
-    dnsDomainIs(host, "google.be") ||
-    dnsDomainIs(host, "google.bs") ||
-    dnsDomainIs(host, "google.bz") ||
-    dnsDomainIs(host, "google.ca") ||
-    dnsDomainIs(host, "google.ch") ||
-    dnsDomainIs(host, "google.cl") ||
-    dnsDomainIs(host, "google.co.id") ||
-    dnsDomainIs(host, "google.co.il") ||
     dnsDomainIs(host, "google.co.in") ||
-    dnsDomainIs(host, "google.co.jp") ||
-    dnsDomainIs(host, "google.co.kr") ||
-    dnsDomainIs(host, "google.co.nz") ||
-    dnsDomainIs(host, "google.co.th") ||
-    dnsDomainIs(host, "google.co.uk") ||
-    dnsDomainIs(host, "google.co.za") ||
     dnsDomainIs(host, "google.com") ||
-    dnsDomainIs(host, "google.com.ar") ||
-    dnsDomainIs(host, "google.com.au") ||
-    dnsDomainIs(host, "google.com.bd") ||
-    dnsDomainIs(host, "google.com.bh") ||
-    dnsDomainIs(host, "google.com.bo") ||
-    dnsDomainIs(host, "google.com.br") ||
-    dnsDomainIs(host, "google.com.co") ||
-    dnsDomainIs(host, "google.com.cu") ||
-    dnsDomainIs(host, "google.com.ec") ||
-    dnsDomainIs(host, "google.com.eg") ||
-    dnsDomainIs(host, "google.com.et") ||
-    dnsDomainIs(host, "google.com.gh") ||
-    dnsDomainIs(host, "google.com.gt") ||
-    dnsDomainIs(host, "google.com.hk") ||
-    dnsDomainIs(host, "google.com.jm") ||
-    dnsDomainIs(host, "google.com.kw") ||
-    dnsDomainIs(host, "google.com.mx") ||
-    dnsDomainIs(host, "google.com.my") ||
-    dnsDomainIs(host, "google.com.ng") ||
-    dnsDomainIs(host, "google.com.om") ||
-    dnsDomainIs(host, "google.com.pa") ||
-    dnsDomainIs(host, "google.com.pe") ||
-    dnsDomainIs(host, "google.com.ph") ||
-    dnsDomainIs(host, "google.com.pk") ||
-    dnsDomainIs(host, "google.com.pr") ||
-    dnsDomainIs(host, "google.com.py") ||
-    dnsDomainIs(host, "google.com.qa") ||
-    dnsDomainIs(host, "google.com.sa") ||
-    dnsDomainIs(host, "google.com.sg") ||
-    dnsDomainIs(host, "google.com.sv") ||
-    dnsDomainIs(host, "google.com.tr") ||
-    dnsDomainIs(host, "google.com.tw") ||
-    dnsDomainIs(host, "google.com.ua") ||
-    dnsDomainIs(host, "google.com.uy") ||
-    dnsDomainIs(host, "google.com.ve") ||
-    dnsDomainIs(host, "google.com.vn") ||
-    dnsDomainIs(host, "google.de") ||
-    dnsDomainIs(host, "google.dk") ||
-    dnsDomainIs(host, "google.es") ||
-    dnsDomainIs(host, "google.fi") ||
-    dnsDomainIs(host, "google.fr") ||
-    dnsDomainIs(host, "google.gy") ||
-    dnsDomainIs(host, "google.hn") ||
-    dnsDomainIs(host, "google.ie") ||
-    dnsDomainIs(host, "google.it") ||
-    dnsDomainIs(host, "google.lk") ||
-    dnsDomainIs(host, "google.mu") ||
-    dnsDomainIs(host, "google.mv") ||
-    dnsDomainIs(host, "google.ne") ||
-    dnsDomainIs(host, "google.ni") ||
-    dnsDomainIs(host, "google.nl") ||
-    dnsDomainIs(host, "google.no") ||
-    dnsDomainIs(host, "google.pl") ||
-    dnsDomainIs(host, "google.pt") ||
-    dnsDomainIs(host, "google.ru") ||
-    dnsDomainIs(host, "google.rw") ||
-    dnsDomainIs(host, "google.se") ||
-    dnsDomainIs(host, "google.so") ||
-    dnsDomainIs(host, "google.tt") ||
     dnsDomainIs(host, "search.brave.com") ||
-    dnsDomainIs(host, "search.snapdo.com") ||
-    dnsDomainIs(host, "search.yahoo.co.jp") ||
     dnsDomainIs(host, "search.yahoo.com") ||
-    dnsDomainIs(host, "startpage.com") ||
-    dnsDomainIs(host, "uk.search.yahoo.com") ||
-    dnsDomainIs(host, "us.search.yahoo.com") ||
+    dnsDomainIs(host, "www.bing.com") ||
+    dnsDomainIs(host, "www.duckduckgo.com") ||
+    dnsDomainIs(host, "www.ecosia.org") ||
+    dnsDomainIs(host, "www.google.co.in") ||
+    dnsDomainIs(host, "www.google.com") ||
+    dnsDomainIs(host, "www.startpage.com") ||
+    dnsDomainIs(host, "www.yandex.com") ||
     dnsDomainIs(host, "yandex.com")
   ) {
     return "PROXY 127.0.0.1:8877";
