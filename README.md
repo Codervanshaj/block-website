@@ -1,109 +1,182 @@
-# Prevent Visit
+# 🛡️ Prevent Visit
 
-Prevent Visit is a Windows-focused blocker designed to stop adult sites and explicit searches across the whole machine, including normal tabs and private/incognito tabs, by forcing supported browsers through a local filtering layer.
+A simple Windows software that blocks adult/explicit content from search engines and websites.
 
-It is built in stronger layers:
+**Works automatically for Chrome, Edge, and Brave - no manual browser configuration needed!**
 
-- A local proxy blocks direct requests to known adult domains.
-- HTTPS interception for major search engines lets the blocker inspect encrypted search queries and return a local empty-results page for explicit searches.
-- URL and query scanning blocks obvious porn-related searches and links.
-- Windows/browser policy scripts disable private browsing for Chrome, Edge, Brave, and Firefox.
-- Hosts-file generation gives you another hard block layer for known domains.
-- Windows Firewall rules stop common browsers from bypassing the blocker with direct outbound `80/443` traffic.
-- A local root certificate is generated so the blocker can inspect encrypted search traffic on supported engines.
+---
 
-## What this project includes
+## Features
 
-- `prevent_visit/cli.py`: command line entrypoint.
-- `prevent_visit/certs.py`: local root CA and interception certificate manager.
-- `prevent_visit/proxy.py`: local blocking proxy service.
-- `prevent_visit/rules.py`: domain and keyword decision engine.
-- `prevent_visit/windows.py`: hosts and Windows policy generators.
-- `scripts/install-system-guard.ps1`: elevated installer for Windows.
-- `scripts/uninstall-system-guard.ps1`: cleanup script.
-- `scripts/start-guard.ps1`: manual background start helper.
-- `scripts/stop-guard.ps1`: manual stop helper.
-- `scripts/check-status.ps1`: quick status check helper.
+- ✅ **Blocks explicit search results** - Search queries for adult content show "No results found"
+- ✅ **Works for all browsers** - Chrome, Edge, Brave configured automatically
+- ✅ **Auto-starts on login** - No need to manually start after rebooting
+- ✅ **HTTPS inspection** - Intercepts encrypted search traffic to filter results
+- ✅ **No browser configuration** - Installs and works automatically
+- ✅ **Easy commands** - Simple install/uninstall/start/stop/status commands
 
-## Quick start
+---
 
-1. Create the default config:
+## Installation
+
+### 1. Clone the repository
 
 ```powershell
-python -m prevent_visit.cli init-config
+cd D:\
+git clone https://github.com/Codervanshaj/block-website.git
 ```
 
-2. Run the blocker service:
+### 2. Install the software
 
 ```powershell
-python -m prevent_visit.cli run-service
+cd D:\block-website
+python run_guard.py install
 ```
 
-3. In an elevated PowerShell window, apply the system-wide lockdown:
+Click **Yes** when the admin prompt appears.
+
+That's it! The software will:
+- Generate and install the root certificate
+- Configure Chrome, Edge, and Brave automatically
+- Set up auto-start on login
+- Start the blocking service
+
+---
+
+## Commands
 
 ```powershell
-.\scripts\install-system-guard.ps1
+# Install (first time only)
+python run_guard.py install
+
+# Check status
+python run_guard.py status
+
+# Stop blocking (temporarily)
+python run_guard.py stop
+
+# Start blocking again
+python run_guard.py start
+
+# Uninstall (complete removal)
+python run_guard.py uninstall
 ```
 
-That installer also starts the guard immediately and registers it to start on every login.
+---
 
-4. Check whether it is active:
+## How It Works
 
+1. **HTTPS Interception**: When you search on Google, Bing, DuckDuckGo, etc., the software intercepts the encrypted traffic
+2. **Keyword Filtering**: It scans your search query against a list of blocked keywords
+3. **Block Results**: If explicit content is detected, you see "No results found" instead
+4. **Normal Browsing**: Gmail, GitHub, YouTube, and other normal sites work normally
+
+### Search Engines Blocked
+- Google (all country variants: google.com, google.co.uk, google.co.in, etc.)
+- Bing
+- DuckDuckGo
+- Yahoo Search
+- Brave Search
+- Startpage
+- Yandex
+- Ecosia
+
+### What Gets Blocked
+- Search queries containing adult keywords
+- Explicit website names in search
+- Known adult domain requests
+
+### What Stays Unblocked
+- Gmail, Google Docs, Google Drive, Google Calendar
+- YouTube, Google Maps
+- All other normal websites
+- System traffic
+
+---
+
+## Customizing the Block List
+
+Edit these files to add/remove blocked keywords and domains:
+
+### Blocked Keywords
+File: `prevent_visit/data/blocked_keywords.txt`
+
+Add any words or phrases you want to block (one per line)
+
+### Blocked Domains
+File: `prevent_visit/data/adult_domains.txt`
+
+Add any adult websites you want to block (one per line)
+
+After editing, stop and start the service:
 ```powershell
-.\scripts\check-status.ps1
+python run_guard.py stop
+python run_guard.py start
 ```
 
-## How the blocking works
+---
 
-### 1. Proxy and HTTPS interception layer
+## Troubleshooting
 
-The service listens on `127.0.0.1:8877`.
+### Blocking not working?
 
-- HTTPS requests to major search engines are intercepted locally, decrypted with the installed local root certificate, and checked against the blocked keyword list.
-- When an explicit search is detected, the blocker returns a local `No results found` page instead of search results.
-- HTTPS `CONNECT` requests to known adult domains are blocked by hostname before the page opens.
-- Plain HTTP requests are checked by hostname, full URL, and common search query parameters like `q`, `query`, and `search_query`.
-- Every blocked event is written to `logs/blocked-events.jsonl`.
+1. Check if service is running:
+```powershell
+python run_guard.py status
+```
 
-### 2. Browser and system lockdown
+2. If stopped, start it:
+```powershell
+python run_guard.py start
+```
 
-The generated Windows policies do the following:
+3. If not installed, reinstall:
+```powershell
+python run_guard.py install
+```
 
-- Disable Chrome incognito mode.
-- Disable Edge InPrivate mode.
-- Disable Brave private browsing mode through the Chromium policy key.
-- Disable Firefox private browsing through the Mozilla policy key.
-- Force system/browser proxy settings to the local blocker.
-- Disable DNS-over-HTTPS in Chromium-based browsers so traffic stays on the local filtering path.
-- Add Windows Firewall rules for common browser executables so direct outbound web traffic is blocked unless it goes through the local proxy.
+### Still seeing explicit results?
 
-### 3. Hosts layer
+Try searching for "porn" or "hentai" on Google. You should see "No results found".
 
-`prevent-visit build-hosts` writes a managed hosts payload to `build/hosts.generated`.
+---
 
-That payload null-routes the known adult domains in `prevent_visit/data/adult_domains.txt`.
+## Project Structure
 
-## Customizing the rules
+```
+block-website/
+├── run_guard.py           # Main entry point
+├── prevent_visit/
+│   ├── cli.py            # Command line interface
+│   ├── proxy.py          # Local proxy server
+│   ├── rules.py           # Blocking rules engine
+│   ├── certs.py          # Certificate management
+│   ├── config.py         # Configuration
+│   ├── windows.py        # Windows integration
+│   └── data/
+│       ├── blocked_keywords.txt   # Keywords to block
+│       └── adult_domains.txt     # Domains to block
+├── config/               # Generated config (local only)
+├── build/               # Generated files (local only)
+└── logs/                # Event logs (local only)
+```
 
-Edit these files:
+---
 
-- `prevent_visit/data/adult_domains.txt`
-- `prevent_visit/data/blocked_keywords.txt`
+## For Developers
 
-You can expand them with any sites or phrases you want to stop.
-
-## Important hardening note
-
-For the strongest setup:
-
-- Run the install script as administrator.
-- Use a standard Windows user account for daily browsing, not an administrator account.
-- Keep the blocker service always on.
-- Let someone else control the admin password if you want real anti-bypass protection.
-- Combine this with router-level DNS filtering if you want another external layer.
-
-## Tests
-
+### Run Tests
 ```powershell
 python -m pytest
 ```
+
+### Manual Service Run
+```powershell
+python run_guard.py run-service
+```
+
+---
+
+## License
+
+MIT License
