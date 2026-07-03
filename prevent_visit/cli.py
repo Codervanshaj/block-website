@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import argparse
-import re
-import socket
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 from .config import AppConfig, DEFAULT_CONFIG_PATH
@@ -13,55 +13,88 @@ from .rules import RuleSet
 from .windows import (
     build_pac_payload,
     build_hosts_payload,
-    render_firewall_script,
-    render_registry_script,
-    render_startup_task_script,
-    render_uninstall_script,
 )
+
+
+def _run_powershell(script: str) -> subprocess.CompletedProcess[str]:
+    cmd = ["powershell", "-NoProfile", "-Command", script]
+    return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+
+
+def _run_powershell_elevated(script: str) -> None:
+    subprocess.run(
+        ["powershell", "-Command", f"Start-Process powershell -ArgumentList '-NoProfile -Command {script}' -Verb RunAs -Wait"],
+        capture_output=True,
+    )
+
+
+def _is_port_open(host: str, port: int) -> bool:
+    import socket
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(1.0)
+            return sock.connect_ex((host, port)) == 0
+    except OSError:
+        return False
+
+
+def _get_scheduled_task_state(task_name: str) -> str:
+    script = f"Get-ScheduledTask -TaskName '{task_name}' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty State"
+    result = _run_powershell(script)
+    if result.returncode != 0:
+        return "MISSING"
+    output = result.stdout.strip()
+    if not output:
+        return "MISSING"
+    return output
+
+
+def _is_root_cert_installed(cert_path: Path) -> bool:
+    if not cert_path.exists():
+        return False
+    script = (
+        f"$cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2('{cert_path}'); "
+        "Get-ChildItem Cert:\\LocalMachine\\Root -ErrorAction SilentlyContinue | "
+        "Where-Object { $_.Thumbprint -eq $cert.Thumbprint } | Measure-Object | "
+        "Select-Object -ExpandProperty Count"
+    )
+    result = _run_powershell(script)
+    return result.returncode == 0 and result.stdout.strip() not in ("0", "")
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="prevent-visit",
-        description="Windows-focused adult-content blocker helper.",
+        description="Prevent Visit - Block explicit content across all browsers",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    init_parser = subparsers.add_parser("init-config", help="Create the default config file.")
-    init_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+    install_parser = subparsers.add_parser("install", help="Install Prevent Visit system-wide with auto-start")
+    install_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+    install_parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parent.parent)
 
-    run_parser = subparsers.add_parser("run-service", help="Run the local proxy blocker.")
+    uninstall_parser = subparsers.add_parser("uninstall", help="Uninstall Prevent Visit completely")
+    uninstall_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+    uninstall_parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parent.parent)
+
+    start_parser = subparsers.add_parser("start", help="Start the Prevent Visit blocking service")
+    start_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+
+    stop_parser = subparsers.add_parser("stop", help="Stop the Prevent Visit blocking service")
+    stop_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+
+    status_parser = subparsers.add_parser("status", help="Check if Prevent Visit is installed and running")
+    status_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+
+    run_parser = subparsers.add_parser("run-service", help="Run the proxy service (internal)")
     run_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
 
-    cert_parser = subparsers.add_parser("generate-ca", help="Generate the local interception root certificate.")
+    init_parser = subparsers.add_parser("init-config", help="Create default config file")
+    init_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+
+    cert_parser = subparsers.add_parser("generate-ca", help="Generate root certificate")
     cert_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
-
-    hosts_parser = subparsers.add_parser("build-hosts", help="Generate managed hosts entries.")
-    hosts_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
-    hosts_parser.add_argument("--output", type=Path, default=None)
-
-    pac_parser = subparsers.add_parser("build-pac", help="Generate the search-only proxy PAC file.")
-    pac_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
-    pac_parser.add_argument("--output", type=Path, default=None)
-
-    registry_parser = subparsers.add_parser("build-registry-script", help="Generate the policy apply script.")
-    registry_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
-    registry_parser.add_argument("--output", type=Path, default=Path("build") / "apply-policies.ps1")
-
-    firewall_parser = subparsers.add_parser("build-firewall-script", help="Generate the firewall apply script.")
-    firewall_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
-    firewall_parser.add_argument("--output", type=Path, default=Path("build") / "apply-firewall-rules.ps1")
-
-    uninstall_parser = subparsers.add_parser("build-uninstall-script", help="Generate the policy removal script.")
-    uninstall_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
-    uninstall_parser.add_argument("--output", type=Path, default=Path("build") / "remove-policies.ps1")
-
-    task_parser = subparsers.add_parser("build-startup-task", help="Generate the scheduled-task script.")
-    task_parser.add_argument("--output", type=Path, default=Path("build") / "register-task.ps1")
-    task_parser.add_argument("--repo-root", type=Path, default=Path.cwd())
-
-    status_parser = subparsers.add_parser("check-status", help="Check whether the blocker is installed and running.")
-    status_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
 
     return parser
 
@@ -70,10 +103,24 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    if args.command == "init-config":
-        config = AppConfig.load(args.config)
-        config.save(args.config)
-        print(f"Config written to {args.config}")
+    if args.command == "install":
+        do_install(args.config, args.repo_root)
+        return
+
+    if args.command == "uninstall":
+        do_uninstall(args.config, args.repo_root)
+        return
+
+    if args.command == "start":
+        do_start(args.config)
+        return
+
+    if args.command == "stop":
+        do_stop(args.config)
+        return
+
+    if args.command == "status":
+        do_status(args.config)
         return
 
     if args.command == "run-service":
@@ -81,238 +128,331 @@ def main() -> None:
         ProxyServer(config).run()
         return
 
+    if args.command == "init-config":
+        config = AppConfig.load(args.config)
+        config.save(args.config)
+        print(f"Config written to {args.config}")
+        return
+
     if args.command == "generate-ca":
         config = AppConfig.load(args.config)
         manager = CertificateManager(config)
-        _, cert_path = manager.ensure_root_ca()
-        print(f"Root certificate written to {cert_path} (importable copy: {manager.root_cert_der_path})")
+        manager.ensure_root_ca()
+        print(f"Root certificate written to config/certs/")
         return
 
-    if args.command == "build-hosts":
-        config = AppConfig.load(args.config)
-        rules = RuleSet(config)
-        payload = build_hosts_payload(config, rules)
-        output = args.output or Path(config.hosts_output_path)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(payload, encoding="utf-8")
-        print(f"Hosts payload written to {output}")
-        return
-
-    if args.command == "build-pac":
-        config = AppConfig.load(args.config)
-        payload = build_pac_payload(config)
-        output = args.output or Path(config.pac_output_path)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(payload, encoding="utf-8")
-        print(f"PAC file written to {output}")
-        return
-
-    if args.command == "build-registry-script":
-        config = AppConfig.load(args.config)
-        payload = render_registry_script(config)
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(payload, encoding="utf-8")
-        print(f"Registry script written to {args.output}")
-        return
-
-    if args.command == "build-firewall-script":
-        config = AppConfig.load(args.config)
-        payload = render_firewall_script(config)
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(payload, encoding="utf-8")
-        print(f"Firewall script written to {args.output}")
-        return
-
-    if args.command == "build-uninstall-script":
-        config = AppConfig.load(args.config)
-        payload = render_uninstall_script(config)
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(payload, encoding="utf-8")
-        print(f"Uninstall script written to {args.output}")
-        return
-
-    if args.command == "build-startup-task":
-        payload = render_startup_task_script(args.repo_root)
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(payload, encoding="utf-8")
-        print(f"Startup task script written to {args.output}")
-        return
-
-    if args.command == "check-status":
-        raise SystemExit(check_status(args.config))
-
-    parser.error("Unknown command")
+    parser.print_help()
 
 
-def check_status(config_path: Path) -> int:
-    config_exists = config_path.exists()
-    config = AppConfig.load(config_path)
-    repo_root = config_path.resolve().parent.parent
-    runner_path = repo_root / "run_guard.py"
-    root_cert_path = Path(config.certs_dir) / "root_ca_cert.cer"
-
-    port_open = _is_port_open(config.proxy_host, config.proxy_port)
-    listener_pids = _get_listener_process_ids(config.proxy_host, config.proxy_port)
-    guard_processes = _get_guard_process_count(runner_path)
-    task_state = _get_scheduled_task_state("PreventVisitGuard")
-    cert_installed = _is_root_cert_installed(root_cert_path)
-    firewall_rules = _get_firewall_rule_count()
-    guard_label = _describe_guard_state(guard_processes, listener_pids)
-
-    print(f"Config file: {'OK' if config_exists else 'MISSING'} ({config_path})")
-    print(f"Guard process: {guard_label}")
-    print(f"Proxy port: {'LISTENING' if port_open else 'NOT LISTENING'} ({config.proxy_host}:{config.proxy_port})")
-    print(f"Scheduled task: {task_state}")
-    print(f"Root certificate: {'INSTALLED' if cert_installed else 'MISSING'} ({root_cert_path})")
-    print(f"Firewall rules: {'FOUND' if firewall_rules > 0 else 'MISSING'} ({firewall_rules} rule(s))")
-
-    healthy = all(
-        [
-            config_exists,
-            port_open,
-            len(listener_pids) == 1,
-            task_state not in {"MISSING", "ERROR"},
-            cert_installed,
-            firewall_rules > 0,
-        ]
-    )
-    print(f"Overall status: {'ACTIVE' if healthy else 'NEEDS ATTENTION'}")
-    return 0 if healthy else 1
-
-
-def _is_port_open(host: str, port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.settimeout(1.0)
-        return sock.connect_ex((host, port)) == 0
-
-
-def _get_guard_process_count(runner_path: Path) -> int:
-    script = (
-        "$runner = @'\n"
-        f"{runner_path}\n"
-        "'@.Trim(); "
-        "$count = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | "
-        "Where-Object { $_.Name -match '^pythonw?\\.exe$' -and $_.CommandLine -like \"*$runner*\" }).Count; "
-        "Write-Output $count"
-    )
-    result = _run_powershell(script)
-    if result.returncode != 0:
-        return 0
+def _is_admin() -> bool:
     try:
-        return int(result.stdout.strip() or "0")
-    except ValueError:
-        return 0
-
-
-def _get_listener_process_ids(host: str, port: int) -> list[int]:
-    result = subprocess.run(
-        ["netstat", "-ano", "-p", "TCP"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    if result.returncode != 0:
-        return []
-
-    pids: set[int] = set()
-    for line in result.stdout.splitlines():
-        parsed = _parse_netstat_listener(line)
-        if parsed is None:
-            continue
-        local_address, pid = parsed
-        if _matches_listener_address(local_address, host, port):
-            pids.add(pid)
-    return sorted(pids)
-
-
-def _parse_netstat_listener(line: str) -> tuple[str, int] | None:
-    parts = line.split()
-    if len(parts) < 5 or parts[0].upper() != "TCP":
-        return None
-    if parts[3].upper() != "LISTENING":
-        return None
-    try:
-        return parts[1], int(parts[4])
-    except ValueError:
-        return None
-
-
-def _matches_listener_address(local_address: str, host: str, port: int) -> bool:
-    normalized = local_address.strip().lower()
-    if normalized.startswith("[::]"):
-        return normalized.endswith(f":{port}")
-    if normalized.startswith("["):
-        return normalized == f"[{host.lower()}]:{port}"
-    return normalized in {
-        f"{host.lower()}:{port}",
-        f"0.0.0.0:{port}",
-        f"127.0.0.1:{port}" if host in {"localhost", "127.0.0.1"} else "",
-    }
-
-
-def _describe_guard_state(guard_processes: int, listener_pids: list[int]) -> str:
-    if len(listener_pids) > 1:
-        return f"DUPLICATE LISTENERS ({len(listener_pids)} listener PID(s): {', '.join(str(pid) for pid in listener_pids)})"
-    if guard_processes > 1:
-        return f"DUPLICATE PROCESSES ({guard_processes} instance(s))"
-    if guard_processes == 1:
-        return "RUNNING (1 detected process)"
-    if len(listener_pids) == 1:
-        return f"PORT ACTIVE (listener PID {listener_pids[0]}; command-line lookup unavailable)"
-    return "STOPPED (no detected process or listener)"
-
-
-def _get_scheduled_task_state(task_name: str) -> str:
-    script = (
-        f"$task = Get-ScheduledTask -TaskName '{task_name}' -ErrorAction SilentlyContinue; "
-        "if ($null -eq $task) { Write-Output 'MISSING' } else { Write-Output $task.State }"
-    )
-    result = _run_powershell(script)
-    if result.returncode != 0:
-        return "ERROR"
-    return result.stdout.strip() or "ERROR"
-
-
-def _is_root_cert_installed(cert_path: Path) -> bool:
-    if not cert_path.exists():
+        import ctypes
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
+    except Exception:
         return False
+
+
+def do_install(config_path: Path, repo_root: Path) -> None:
+    print("=" * 50)
+    print("  Prevent Visit - Installation")
+    print("=" * 50)
+    print()
+
+    if not _is_admin():
+        print("[!] Administrator privileges required.")
+        print("[*] Re-running with elevation...")
+        _run_powershell_elevated(f"Set-Location '{repo_root}'; python run_guard.py install")
+        return
+
+    print("[*] Generating configuration...")
+    config = AppConfig.load(config_path)
+    config.save(config_path)
+
+    print("[*] Generating root certificate...")
+    manager = CertificateManager(config)
+    manager.ensure_root_ca()
+    root_cert = Path(config.certs_dir) / "root_ca_cert.cer"
+
+    print("[*] Installing root certificate...")
+    _install_cert(root_cert)
+
+    print("[*] Setting up auto-start scheduled task...")
+    _setup_scheduled_task(repo_root)
+
+    print("[*] Configuring browser proxy settings...")
+    _configure_browser_proxy(config, repo_root)
+
+    print("[*] Starting blocking service...")
+    do_start(config_path)
+
+    print()
+    print("=" * 50)
+    print("  Installation Complete!")
+    print("=" * 50)
+    print()
+    print("[*] Prevent Visit is now installed and running.")
+    print("[*] It will automatically start when you log in.")
+    print("[*] Commands:")
+    print("       prevent-visit status    - Check status")
+    print("       prevent-visit stop      - Stop protection")
+    print("       prevent-visit start    - Start protection")
+    print("       prevent-visit uninstall - Remove completely")
+    print()
+
+
+def do_uninstall(config_path: Path, repo_root: Path) -> None:
+    print("=" * 50)
+    print("  Prevent Visit - Uninstalling")
+    print("=" * 50)
+    print()
+
+    if not _is_admin():
+        print("[!] Administrator privileges required.")
+        print("[*] Re-running with elevation...")
+        _run_powershell_elevated(f"Set-Location '{repo_root}'; python run_guard.py uninstall")
+        return
+
+    print("[*] Stopping blocking service...")
+    do_stop(config_path)
+
+    print("[*] Removing scheduled task...")
+    _remove_scheduled_task()
+
+    print("[*] Removing browser proxy settings...")
+    _remove_browser_proxy()
+
+    print("[*] Removing root certificate...")
+    _remove_cert(Path(config.certs_dir) / "root_ca_cert.cer")
+
+    print()
+    print("=" * 50)
+    print("  Uninstall Complete!")
+    print("=" * 50)
+    print()
+    print("[*] Prevent Visit has been completely removed.")
+    print()
+
+
+def do_start(config_path: Path) -> None:
+    config = AppConfig.load(config_path)
+    proxy_host = config.proxy_host
+    proxy_port = config.proxy_port
+
+    if _is_port_open(proxy_host, proxy_port):
+        print(f"[+] Prevent Visit is already running on {proxy_host}:{proxy_port}")
+        return
+
+    print("[*] Starting Prevent Visit blocking service...")
+    repo_root = config_path.resolve().parent.parent
+    runner_script = repo_root / "run_guard.py"
+
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    startupinfo.wShowWindow = subprocess.SW_HIDE
+
+    subprocess.Popen(
+        [sys.executable, str(runner_script), "run-service", "--config", str(config_path)],
+        startupinfo=startupinfo,
+        cwd=str(repo_root),
+    )
+
+    import time
+    for _ in range(10):
+        time.sleep(0.5)
+        if _is_port_open(proxy_host, proxy_port):
+            print(f"[+] Prevent Visit started on {proxy_host}:{proxy_port}")
+            return
+
+    print("[!] Failed to start Prevent Visit.")
+
+
+def do_stop(config_path: Path) -> None:
+    config = AppConfig.load(config_path)
+    proxy_host = config.proxy_host
+    proxy_port = config.proxy_port
+
+    if not _is_port_open(proxy_host, proxy_port):
+        print("[*] Prevent Visit is not running.")
+        return
+
+    print("[*] Stopping Prevent Visit blocking service...")
+
     script = (
-        "$certPath = @'\n"
-        f"{cert_path}\n"
-        "'@.Trim(); "
-        "$cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($certPath); "
-        "$installed = @(Get-ChildItem Cert:\\LocalMachine\\Root | "
-        "Where-Object { $_.Thumbprint -eq $cert.Thumbprint }).Count; "
-        "if ($installed -gt 0) { Write-Output 'yes' } else { Write-Output 'no' }"
+        f"netstat -ano -p TCP | Where-Object {{ $_ -match 'LISTENING' -and $_ -match ':{proxy_port}' }} | "
+        f"ForEach-Object {{ ($_ -split '\\s+')[-1] }} | "
+        f"ForEach-Object {{ Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }}"
     )
+    _run_powershell(script)
+
+    if not _is_port_open(proxy_host, proxy_port):
+        print("[+] Prevent Visit stopped.")
+    else:
+        print("[!] Failed to stop Prevent Visit.")
+
+
+def do_status(config_path: Path) -> None:
+    config = AppConfig.load(config_path)
+    proxy_host = config.proxy_host
+    proxy_port = config.proxy_port
+
+    print("=" * 50)
+    print("  Prevent Visit - Status")
+    print("=" * 50)
+    print()
+
+    running = _is_port_open(proxy_host, proxy_port)
+    print(f"  Service:        {'[RUNNING]' if running else '[STOPPED]'}")
+    print(f"  Proxy:          {proxy_host}:{proxy_port}")
+
+    task_state = _get_scheduled_task_state("PreventVisitGuard")
+    auto_start = task_state not in ("", "MISSING", None)
+    print(f"  Auto-start:     {'[ENABLED]' if auto_start else '[DISABLED]'}")
+    if auto_start:
+        print(f"  Task state:     {task_state}")
+
+    cert_path = Path(config.certs_dir) / "root_ca_cert.cer"
+    cert_installed = _is_root_cert_installed(cert_path)
+    print(f"  Certificate:    {'[INSTALLED]' if cert_installed else '[NOT INSTALLED]'}")
+
+    print()
+    if running and auto_start and cert_installed:
+        print("  Status: [HEALTHY] - Fully installed and running")
+    elif running:
+        print("  Status: [PARTIAL] - Service running but not fully installed")
+    else:
+        print("  Status: [STOPPED] - Install to enable protection")
+
+
+def _install_cert(cert_path: Path) -> None:
+    if not cert_path.exists():
+        print(f"[!] Certificate not found: {cert_path}")
+        return
+    script = f"Import-Certificate -FilePath '{cert_path}' -CertStoreLocation Cert:\\LocalMachine\\Root -ErrorAction Stop"
     result = _run_powershell(script)
-    return result.returncode == 0 and result.stdout.strip().lower() == "yes"
+    if result.returncode == 0:
+        print("[+] Root certificate installed to Trusted Root store")
+    else:
+        print(f"[!] Certificate install: {result.stderr.strip()}")
 
 
-def _get_firewall_rule_count() -> int:
+def _remove_cert(cert_path: Path) -> None:
+    if not cert_path.exists():
+        return
     script = (
-        "$count = @(Get-NetFirewallRule -DisplayName 'PreventVisit Browser * Block 80-443' "
-        "-ErrorAction SilentlyContinue).Count; "
-        "Write-Output $count"
+        f"$cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2('{cert_path}'); "
+        "Get-ChildItem Cert:\\LocalMachine\\Root | Where-Object { $_.Thumbprint -eq $cert.Thumbprint } | "
+        "Remove-Item -Force -ErrorAction SilentlyContinue"
     )
+    _run_powershell(script)
+    print("[+] Root certificate removed")
+
+
+def _setup_scheduled_task(repo_root: Path) -> None:
+    _remove_scheduled_task()
+
+    start_script = repo_root / "run_guard.py"
+    task_xml = f"""<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Prevent Visit Content Blocker</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger />
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>python</Command>
+      <Arguments>"{start_script}" run-service</Arguments>
+      <WorkingDirectory>{repo_root}</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>"""
+
+    temp_file = Path(os.environ.get("TEMP", "/tmp")) / "prevent_visit_task.xml"
+    temp_file.write_text(task_xml, encoding="utf-16")
+    script = f"Register-ScheduledTask -TaskName 'PreventVisitGuard' -Xml (Get-Content '{temp_file}' -Raw) -Force"
     result = _run_powershell(script)
-    if result.returncode != 0:
-        return 0
-    try:
-        return int(result.stdout.strip() or "0")
-    except ValueError:
-        return 0
+    if result.returncode == 0:
+        print("[+] Auto-start scheduled task created")
+    else:
+        print(f"[!] Task creation: {result.stderr.strip()}")
 
 
-def _run_powershell(script: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["powershell", "-NoProfile", "-Command", script],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+def _remove_scheduled_task() -> None:
+    script = "Unregister-ScheduledTask -TaskName 'PreventVisitGuard' -Confirm:$false -ErrorAction SilentlyContinue"
+    _run_powershell(script)
+
+
+def _configure_browser_proxy(config: AppConfig, repo_root: Path) -> None:
+    pac_url = (repo_root / "build" / "prevent-visit.pac").as_uri()
+
+    pac_path = repo_root / "build" / "prevent-visit.pac"
+    pac_path.parent.mkdir(parents=True, exist_ok=True)
+    pac_path.write_text(build_pac_payload(config), encoding="utf-8")
+
+    chrome_policy = r"HKLM:\SOFTWARE\Policies\Google\Chrome"
+    edge_policy = r"HKLM:\SOFTWARE\Policies\Microsoft\Edge"
+
+    scripts = [
+        f"New-Item -Path '{chrome_policy}' -Force | Out-Null; "
+        f"Set-ItemProperty -Path '{chrome_policy}' -Name 'ProxyMode' -Value 'pac_script' -Force; "
+        f"Set-ItemProperty -Path '{chrome_policy}' -Name 'ProxyPacUrl' -Value '{pac_url}' -Force; "
+        f"Set-ItemProperty -Path '{chrome_policy}' -Name 'DnsOverHttpsMode' -Value 'off' -Force; "
+        f"Set-ItemProperty -Path '{chrome_policy}' -Name 'IncognitoModeAvailability' -Value 1 -Force",
+
+        f"New-Item -Path '{edge_policy}' -Force | Out-Null; "
+        f"Set-ItemProperty -Path '{edge_policy}' -Name 'ProxyMode' -Value 'pac_script' -Force; "
+        f"Set-ItemProperty -Path '{edge_policy}' -Name 'ProxyPacUrl' -Value '{pac_url}' -Force; "
+        f"Set-ItemProperty -Path '{edge_policy}' -Name 'DnsOverHttpsMode' -Value 'off' -Force; "
+        f"Set-ItemProperty -Path '{edge_policy}' -Name 'InPrivateModeAvailability' -Value 1 -Force",
+
+        f"New-Item -Path 'HKLM:\\SOFTWARE\\Policies\\BraveSoftware\\Brave' -Force | Out-Null; "
+        f"Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\BraveSoftware\\Brave' -Name 'ProxyMode' -Value 'pac_script' -Force; "
+        f"Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\BraveSoftware\\Brave' -Name 'ProxyPacUrl' -Value '{pac_url}' -Force; "
+        f"Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\BraveSoftware\\Brave' -Name 'IncognitoModeAvailability' -Value 1 -Force",
+    ]
+
+    for script in scripts:
+        _run_powershell(script)
+
+    print("[+] Browser proxy settings configured")
+
+
+def _remove_browser_proxy() -> None:
+    policies = [
+        r"HKLM:\SOFTWARE\Policies\Google\Chrome",
+        r"HKLM:\SOFTWARE\Policies\Microsoft\Edge",
+        r"HKLM:\SOFTWARE\Policies\BraveSoftware\Brave",
+    ]
+
+    for policy in policies:
+        props = ["ProxyMode", "ProxyPacUrl", "ProxyServer", "DnsOverHttpsMode", "IncognitoModeAvailability", "InPrivateModeAvailability"]
+        for prop in props:
+            script = f"Remove-ItemProperty -Path '{policy}' -Name '{prop}' -ErrorAction SilentlyContinue"
+            _run_powershell(script)
+
+    print("[+] Browser proxy settings removed")
 
 
 if __name__ == "__main__":
