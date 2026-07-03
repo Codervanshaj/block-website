@@ -240,28 +240,41 @@ def do_start(config_path: Path) -> None:
         print(f"[+] Prevent Visit is already running on {proxy_host}:{proxy_port}")
         return
 
-    print("[*] Starting Prevent Visit blocking service...")
+    print(f"[*] Starting Prevent Visit blocking service on {proxy_host}:{proxy_port}...")
     repo_root = config_path.resolve().parent.parent
     runner_script = repo_root / "run_guard.py"
+
+    print(f"[*] Python executable: {sys.executable}")
+    print(f"[*] Runner script: {runner_script}")
 
     startupinfo = subprocess.STARTUPINFO()
     startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
     startupinfo.wShowWindow = subprocess.SW_HIDE
 
-    subprocess.Popen(
-        [sys.executable, str(runner_script), "run-service", "--config", str(config_path)],
-        startupinfo=startupinfo,
-        cwd=str(repo_root),
-    )
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, str(runner_script), "run-service", "--config", str(config_path)],
+            startupinfo=startupinfo,
+            cwd=str(repo_root),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        print(f"[*] Process started with PID: {proc.pid}")
+    except Exception as e:
+        print(f"[!] Failed to start process: {e}")
+        return
 
     import time
-    for _ in range(10):
+    for i in range(20):
         time.sleep(0.5)
         if _is_port_open(proxy_host, proxy_port):
-            print(f"[+] Prevent Visit started on {proxy_host}:{proxy_port}")
+            print(f"[+] Prevent Visit started successfully on {proxy_host}:{proxy_port}")
             return
+        print(f"[*] Waiting for service to start... ({i+1}/20)")
 
-    print("[!] Failed to start Prevent Visit.")
+    print("[!] Failed to start Prevent Visit. The service did not respond.")
+    print("[*] Check if Python is installed and try running manually:")
+    print(f"    python \"{runner_script}\" run-service --config \"{config_path}\"")
 
 
 def do_stop(config_path: Path) -> None:
