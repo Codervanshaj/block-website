@@ -403,11 +403,18 @@ def _remove_scheduled_task() -> None:
 
 
 def _configure_browser_proxy(config: AppConfig, repo_root: Path) -> None:
-    pac_url = (repo_root / "build" / "prevent-visit.pac").as_uri()
-
     pac_path = repo_root / "build" / "prevent-visit.pac"
     pac_path.parent.mkdir(parents=True, exist_ok=True)
     pac_path.write_text(build_pac_payload(config), encoding="utf-8")
+
+    # Convert to proper file:// URL for Windows
+    pac_path_str = str(pac_path.resolve())
+    if pac_path_str.startswith("/"):
+        # Unix-style path
+        pac_url = f"file://{pac_path_str}"
+    else:
+        # Windows-style path - convert backslashes and add file://
+        pac_url = f"file:///{pac_path_str.replace(chr(92), '/')}"
 
     chrome_policy = r"HKLM:\SOFTWARE\Policies\Google\Chrome"
     edge_policy = r"HKLM:\SOFTWARE\Policies\Microsoft\Edge"
