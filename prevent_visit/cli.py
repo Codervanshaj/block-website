@@ -22,10 +22,8 @@ def _run_powershell(script: str) -> subprocess.CompletedProcess[str]:
 
 
 def _run_powershell_elevated(script: str) -> None:
-    subprocess.run(
-        ["powershell", "-Command", f"Start-Process powershell -ArgumentList '-NoProfile -Command {script}' -Verb RunAs -Wait"],
-        capture_output=True,
-    )
+    import ctypes
+    ctypes.windll.shell32.ShellExecuteW(None, "runas", "powershell.exe", f"-NoProfile -ExecutionPolicy Bypass -Command {script}", None, 1)
 
 
 def _is_port_open(host: str, port: int) -> bool:
