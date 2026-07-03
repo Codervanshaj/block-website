@@ -236,6 +236,10 @@ def do_start(config_path: Path) -> None:
     proxy_host = config.proxy_host
     proxy_port = config.proxy_port
 
+    # Kill any existing processes on this port first
+    print("[*] Cleaning up any existing processes...")
+    _kill_existing_processes(proxy_port)
+
     if _is_port_open(proxy_host, proxy_port):
         print(f"[+] Prevent Visit is already running on {proxy_host}:{proxy_port}")
         return
@@ -243,9 +247,6 @@ def do_start(config_path: Path) -> None:
     print(f"[*] Starting Prevent Visit blocking service on {proxy_host}:{proxy_port}...")
     repo_root = config_path.resolve().parent.parent
     runner_script = repo_root / "run_guard.py"
-
-    print(f"[*] Python executable: {sys.executable}")
-    print(f"[*] Runner script: {runner_script}")
 
     startupinfo = subprocess.STARTUPINFO()
     startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
@@ -256,8 +257,8 @@ def do_start(config_path: Path) -> None:
             [sys.executable, str(runner_script), "run-service", "--config", str(config_path)],
             startupinfo=startupinfo,
             cwd=str(repo_root),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         print(f"[*] Process started with PID: {proc.pid}")
     except Exception as e:
@@ -273,8 +274,26 @@ def do_start(config_path: Path) -> None:
         print(f"[*] Waiting for service to start... ({i+1}/20)")
 
     print("[!] Failed to start Prevent Visit. The service did not respond.")
-    print("[*] Check if Python is installed and try running manually:")
-    print(f"    python \"{runner_script}\" run-service --config \"{config_path}\"")
+
+
+def _kill_existing_processes(proxy_port: int) -> None:
+    """Kill any existing processes that might be using the proxy port."""
+    script = f"""
+    $pattern = 'LISTENING.*:{proxy_port}\\s';
+    $lines = netstat -ano -p TCP | Where-Object {{ $_ -match $pattern }};
+    if ($lines) {{
+        $pids = $lines | ForEach-Object {{
+            ($_ -split '\\s+')[-1]
+        }} | Select-Object -Unique;
+        foreach ($pid in $pids) {{
+            if ($pid -and $pid -ne '0') {{
+                Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue;
+                Write-Output "Killed PID: $pid"
+            }}
+        }}
+    }}
+    """
+    _run_powershell(script)
 
 
 def do_stop(config_path: Path) -> None:
@@ -287,13 +306,7 @@ def do_stop(config_path: Path) -> None:
         return
 
     print("[*] Stopping Prevent Visit blocking service...")
-
-    script = (
-        f"netstat -ano -p TCP | Where-Object {{ $_ -match 'LISTENING' -and $_ -match ':{proxy_port}' }} | "
-        f"ForEach-Object {{ ($_ -split '\\s+')[-1] }} | "
-        f"ForEach-Object {{ Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }}"
-    )
-    _run_powershell(script)
+    _kill_existing_processes(proxy_port)
 
     if not _is_port_open(proxy_host, proxy_port):
         print("[+] Prevent Visit stopped.")
