@@ -17,6 +17,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 include-package-data = true
+packages = ["prevent_visit"]
 
 [tool.setuptools.package-data]
 prevent_visit = [
