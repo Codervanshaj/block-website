@@ -1,0 +1,51 @@
+# Prevent Visit - Local files to ignore
+
+# Configuration (generated on first run)
+config/settings.json
+
+# Certificates (generated locally - DO NOT COMMIT)
+config/certs/*.pem
+config/certs/*.cer
+config/certs/leaf/
+
+# Generated build files
+build/*.pac
+build/*.ps1
+build/*.xml
+build/hosts.generated
+
+# Logs
+logs/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+*.manifest
+*.spec
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Virtual environments
+venv/
+env/
+.env
+
+# Temp files
+*.tmp
+*.temp
