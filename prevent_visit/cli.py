@@ -163,6 +163,8 @@ def do_install(config_path: Path, repo_root: Path) -> None:
         return
 
     print("[*] Generating configuration...")
+    # Always generate fresh config to avoid path issues
+    config_path.unlink(missing_ok=True)
     config = AppConfig.load(config_path)
     config.save(config_path)
 
@@ -232,7 +234,22 @@ def do_uninstall(config_path: Path, repo_root: Path) -> None:
 
 
 def do_start(config_path: Path) -> None:
-    config = AppConfig.load(config_path)
+    repo_root = config_path.resolve().parent.parent
+
+    # Check if config has invalid paths and regenerate if needed
+    if config_path.exists():
+        config = AppConfig.load(config_path)
+        # Check if blocked_domains_path points to non-existent location
+        from prevent_visit.rules import _resolve_path
+        try:
+            _resolve_path(config.blocked_domains_path)
+        except FileNotFoundError:
+            print("[*] Config has outdated paths, regenerating...")
+            config_path.unlink()
+            config = AppConfig.load(config_path)
+    else:
+        config = AppConfig.load(config_path)
+
     proxy_host = config.proxy_host
     proxy_port = config.proxy_port
 
@@ -245,7 +262,6 @@ def do_start(config_path: Path) -> None:
         return
 
     print(f"[*] Starting Prevent Visit blocking service on {proxy_host}:{proxy_port}...")
-    repo_root = config_path.resolve().parent.parent
     runner_script = repo_root / "run_guard.py"
 
     # Create logs directory
