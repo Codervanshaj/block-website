@@ -17,6 +17,18 @@ SEARCH_QUERY_KEYS = {
     "text",
     "wd",
     "k",
+    "keyword",
+    "keywords",
+    "s",
+    "qs",
+    "ie",
+    "hl",
+    "qpar",
+    "encquery",
+    "aqs",
+    "filter",
+    "um",
+    "uddg",
 }
 
 
@@ -105,14 +117,12 @@ class RuleSet:
         value = normalize_host(host)
         if not value:
             return False
+        # Direct match
         if value in self.search_hosts:
             return True
-
+        # Check if host is a subdomain of any search host
         for search_host in self.search_hosts:
-            if not value.endswith(f".{search_host}"):
-                continue
-            first_label = value.split(".", 1)[0]
-            if first_label in {"www", "images", "search", "img", "m", "lite"}:
+            if value.endswith(f".{search_host}"):
                 return True
         return False
 

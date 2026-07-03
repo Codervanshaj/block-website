@@ -254,8 +254,20 @@ class ProxyServer:
         self.server.serve_forever()
 
     def should_intercept(self, host: str, port: int) -> bool:
+        if port != 443:
+            return False
         lowered = host.lower()
-        return port == 443 and lowered in self.intercept_hosts
+        # Direct match with intercept hosts
+        if lowered in self.intercept_hosts:
+            return True
+        # Check if domain ends with a search host (e.g., images.google.com)
+        for search_host in self.intercept_hosts:
+            if lowered.endswith(f".{search_host}"):
+                # But exclude known non-search subdomains like mail, docs, drive, etc.
+                first_label = lowered.split(".")[0]
+                if first_label not in {"mail", "docs", "drive", "calendar", "photos", "keep", "tasks", "chat", "meet", "maps", "news", "youtube", "play", "store", "music", "books"}:
+                    return True
+        return False
 
     def write_decision_response(
         self,
