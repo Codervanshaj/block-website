@@ -1,0 +1,117 @@
+Metadata-Version: 2.4
+Name: prevent-visit
+Version: 0.1.0
+Summary: Windows-focused adult-content blocker with proxy, hosts generation, and browser lockdown helpers.
+Author: OpenAI Codex
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+
+# Prevent Visit
+
+Prevent Visit is a Windows-focused blocker designed to stop adult sites and explicit searches across the whole machine, including normal tabs and private/incognito tabs, by forcing supported browsers through a local filtering layer.
+
+It is built in stronger layers:
+
+- A local proxy blocks direct requests to known adult domains.
+- HTTPS interception for major search engines lets the blocker inspect encrypted search queries and return a local empty-results page for explicit searches.
+- URL and query scanning blocks obvious porn-related searches and links.
+- Windows/browser policy scripts disable private browsing for Chrome, Edge, Brave, and Firefox.
+- Hosts-file generation gives you another hard block layer for known domains.
+- Windows Firewall rules stop common browsers from bypassing the blocker with direct outbound `80/443` traffic.
+- A local root certificate is generated so the blocker can inspect encrypted search traffic on supported engines.
+
+## What this project includes
+
+- `prevent_visit/cli.py`: command line entrypoint.
+- `prevent_visit/certs.py`: local root CA and interception certificate manager.
+- `prevent_visit/proxy.py`: local blocking proxy service.
+- `prevent_visit/rules.py`: domain and keyword decision engine.
+- `prevent_visit/windows.py`: hosts and Windows policy generators.
+- `scripts/install-system-guard.ps1`: elevated installer for Windows.
+- `scripts/uninstall-system-guard.ps1`: cleanup script.
+- `scripts/start-guard.ps1`: manual background start helper.
+- `scripts/stop-guard.ps1`: manual stop helper.
+- `scripts/check-status.ps1`: quick status check helper.
+
+## Quick start
+
+1. Create the default config:
+
+```powershell
+python -m prevent_visit.cli init-config
+```
+
+2. Run the blocker service:
+
+```powershell
+python -m prevent_visit.cli run-service
+```
+
+3. In an elevated PowerShell window, apply the system-wide lockdown:
+
+```powershell
+.\scripts\install-system-guard.ps1
+```
+
+That installer also starts the guard immediately and registers it to start on every login.
+
+4. Check whether it is active:
+
+```powershell
+.\scripts\check-status.ps1
+```
+
+## How the blocking works
+
+### 1. Proxy and HTTPS interception layer
+
+The service listens on `127.0.0.1:8877`.
+
+- HTTPS requests to major search engines are intercepted locally, decrypted with the installed local root certificate, and checked against the blocked keyword list.
+- When an explicit search is detected, the blocker returns a local `No results found` page instead of search results.
+- HTTPS `CONNECT` requests to known adult domains are blocked by hostname before the page opens.
+- Plain HTTP requests are checked by hostname, full URL, and common search query parameters like `q`, `query`, and `search_query`.
+- Every blocked event is written to `logs/blocked-events.jsonl`.
+
+### 2. Browser and system lockdown
+
+The generated Windows policies do the following:
+
+- Disable Chrome incognito mode.
+- Disable Edge InPrivate mode.
+- Disable Brave private browsing mode through the Chromium policy key.
+- Disable Firefox private browsing through the Mozilla policy key.
+- Force system/browser proxy settings to the local blocker.
+- Disable DNS-over-HTTPS in Chromium-based browsers so traffic stays on the local filtering path.
+- Add Windows Firewall rules for common browser executables so direct outbound web traffic is blocked unless it goes through the local proxy.
+
+### 3. Hosts layer
+
+`prevent-visit build-hosts` writes a managed hosts payload to `build/hosts.generated`.
+
+That payload null-routes the known adult domains in `prevent_visit/data/adult_domains.txt`.
+
+## Customizing the rules
+
+Edit these files:
+
+- `prevent_visit/data/adult_domains.txt`
+- `prevent_visit/data/blocked_keywords.txt`
+
+You can expand them with any sites or phrases you want to stop.
+
+## Important hardening note
+
+For the strongest setup:
+
+- Run the install script as administrator.
+- Use a standard Windows user account for daily browsing, not an administrator account.
+- Keep the blocker service always on.
+- Let someone else control the admin password if you want real anti-bypass protection.
+- Combine this with router-level DNS filtering if you want another external layer.
+
+## Tests
+
+```powershell
+python -m pytest
+```

@@ -1,0 +1,2 @@
+[console_scripts]
+prevent-visit = prevent_visit.cli:main
