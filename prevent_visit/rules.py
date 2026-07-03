@@ -32,9 +32,19 @@ SEARCH_QUERY_KEYS = {
 }
 
 
+def _resolve_path(path: str) -> Path:
+    """Resolve a path that may be relative to the repo root."""
+    p = Path(path)
+    if p.is_absolute():
+        return p
+    # Resolve relative to the prevent_visit module directory's parent (repo root)
+    return Path(__file__).resolve().parent.parent / path
+
+
 def _read_list(path: str) -> list[str]:
     items: list[str] = []
-    for raw_line in Path(path).read_text(encoding="utf-8").splitlines():
+    resolved_path = _resolve_path(path)
+    for raw_line in resolved_path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip().lower()
         if not line or line.startswith("#"):
             continue

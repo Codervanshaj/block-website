@@ -5,13 +5,22 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = REPO_ROOT / "prevent_visit" / "data"
-DEFAULT_CONFIG_PATH = REPO_ROOT / "config" / "settings.json"
-DEFAULT_LOG_PATH = REPO_ROOT / "logs" / "blocked-events.jsonl"
-DEFAULT_HOSTS_PATH = REPO_ROOT / "build" / "hosts.generated"
-DEFAULT_PAC_PATH = REPO_ROOT / "build" / "prevent-visit.pac"
-DEFAULT_CERTS_DIR = REPO_ROOT / "config" / "certs"
+def _get_repo_root() -> Path:
+    """Get the repo root dynamically from config location."""
+    return Path(__file__).resolve().parent.parent
+
+
+def _get_data_dir() -> Path:
+    """Get the data directory relative to the module."""
+    return Path(__file__).resolve().parent / "data"
+
+
+DATA_DIR = _get_data_dir()
+DEFAULT_CONFIG_PATH = _get_repo_root() / "config" / "settings.json"
+DEFAULT_LOG_PATH = _get_repo_root() / "logs" / "blocked-events.jsonl"
+DEFAULT_HOSTS_PATH = _get_repo_root() / "build" / "hosts.generated"
+DEFAULT_PAC_PATH = _get_repo_root() / "build" / "prevent-visit.pac"
+DEFAULT_CERTS_DIR = _get_repo_root() / "config" / "certs"
 
 
 @dataclass(slots=True)
@@ -30,12 +39,12 @@ class AppConfig:
     block_page_message: str = (
         "This request matched your blocked adult-content rules and was stopped."
     )
-    hosts_output_path: str = str(DEFAULT_HOSTS_PATH)
-    pac_output_path: str = str(DEFAULT_PAC_PATH)
-    log_path: str = str(DEFAULT_LOG_PATH)
-    certs_dir: str = str(DEFAULT_CERTS_DIR)
-    blocked_domains_path: str = str(DATA_DIR / "adult_domains.txt")
-    blocked_keywords_path: str = str(DATA_DIR / "blocked_keywords.txt")
+    hosts_output_path: str = "build/hosts.generated"
+    pac_output_path: str = "build/prevent-visit.pac"
+    log_path: str = "logs/blocked-events.jsonl"
+    certs_dir: str = "config/certs"
+    blocked_domains_path: str = "prevent_visit/data/adult_domains.txt"
+    blocked_keywords_path: str = "prevent_visit/data/blocked_keywords.txt"
     allow_domains: list[str] = field(default_factory=lambda: ["ntp.msn.com"])
     intercept_search_hosts: list[str] = field(
         default_factory=lambda: [
